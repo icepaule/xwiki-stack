@@ -1,0 +1,115 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: xwiki-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  xwiki:
+    image: xwiki:lts-postgres-tomcat
+    container_name: xwiki
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_DATABASE: ${POSTGRES_DB}
+      DB_HOST: db
+      JAVA_OPTS: >-
+        -Xms512m -Xmx2g
+        -Djava.awt.headless=true
+      INDEX_PORT: ""
+    volumes:
+      - xwiki-data:/usr/local/xwiki/data
+    ports:
+      - "${XWIKI_PORT}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/rest/wikis"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  anythingllm:
+    image: mintplexlabs/anythingllm
+    container_name: xwiki-anythingllm
+    environment:
+      STORAGE_DIR: /app/server/storage
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_PATH: ${OLLAMA_URL}
+      OLLAMA_MODEL_PREF: ${OLLAMA_MODEL}
+      EMBEDDING_ENGINE: ollama
+      EMBEDDING_MODEL_PREF: ${OLLAMA_EMBED_MODEL}
+      OLLAMA_EMBEDDING_BASE_PATH: ${OLLAMA_URL}
+    volumes:
+      - ./data/anythingllm:/app/server/storage
+    ports:
+      - "${ANYTHINGLLM_PORT}:3001"
+    restart: unless-stopped
+
+  bridge:
+    build: ./bridge
+    container_name: xwiki-bridge
+    depends_on:
+      xwiki:
+        condition: service_healthy
+    environment:
+      XWIKI_URL: ${XWIKI_URL}
+      XWIKI_ADMIN_USER: ${XWIKI_ADMIN_USER}
+      XWIKI_ADMIN_PASSWORD: ${XWIKI_ADMIN_PASSWORD}
+      OLLAMA_URL: ${OLLAMA_URL}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL}
+      GITHUB_USER: ${GITHUB_USER}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      ANYTHINGLLM_URL: ${ANYTHINGLLM_URL}
+      ANYTHINGLLM_API_KEY: ${ANYTHINGLLM_API_KEY}
+    ports:
+      - "${BRIDGE_PORT}:8090"
+    restart: unless-stopped
+
+  autodoc:
+    build: ./autodoc
+    container_name: xwiki-autodoc
+    depends_on:
+      xwiki:
+        condition: service_healthy
+    environment:
+      XWIKI_URL: ${XWIKI_URL}
+      XWIKI_ADMIN_USER: ${XWIKI_ADMIN_USER}
+      XWIKI_ADMIN_PASSWORD: ${XWIKI_ADMIN_PASSWORD}
+      OLLAMA_URL: ${OLLAMA_URL}
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      SCAN_SUBNETS: ${SCAN_SUBNETS}
+      SCAN_INTERVAL_HOURS: ${SCAN_INTERVAL_HOURS}
+      ESXI_HOST: ${ESXI_HOST}
+      ESXI_USER: ${ESXI_USER}
+      ESXI_SSH_KEY_PATH: ${ESXI_SSH_KEY_PATH}
+      SYNOLOGY_HOST: ${SYNOLOGY_HOST}
+      SYNOLOGY_USER: ${SYNOLOGY_USER}
+      SYNOLOGY_SSH_KEY_PATH: ${SYNOLOGY_SSH_KEY_PATH}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ~/.ssh/id_rsa_esxi:/keys/esxi_rsa:ro
+      - ~/.ssh/id_ed25519:/keys/synology_ed25519:ro
+    ports:
+      - "${AUTODOC_PORT}:8091"
+    restart: unless-stopped
+
+volumes:
+  xwiki-data:
