@@ -16,13 +16,54 @@ def _sanitize_page_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
 
 
+def _md_to_xwiki(md: str) -> str:
+    """Basic Markdown to XWiki 2.1 syntax conversion."""
+    text = md
+
+    # Headings: ### text -> === text ===
+    text = re.sub(r"^######\s+(.+)$", r"====== \1 ======", text, flags=re.MULTILINE)
+    text = re.sub(r"^#####\s+(.+)$", r"===== \1 =====", text, flags=re.MULTILINE)
+    text = re.sub(r"^####\s+(.+)$", r"==== \1 ====", text, flags=re.MULTILINE)
+    text = re.sub(r"^###\s+(.+)$", r"=== \1 ===", text, flags=re.MULTILINE)
+    text = re.sub(r"^##\s+(.+)$", r"== \1 ==", text, flags=re.MULTILINE)
+    text = re.sub(r"^#\s+(.+)$", r"= \1 =", text, flags=re.MULTILINE)
+
+    # Code blocks: ```lang\ncode\n``` -> {{code language="lang"}}code{{/code}}
+    def _replace_code_block(m):
+        lang = m.group(1) or ""
+        code = m.group(2)
+        if lang:
+            return f"{{{{code language='{lang}'}}}}\n{code}\n{{{{/code}}}}"
+        return f"{{{{code}}}}\n{code}\n{{{{/code}}}}"
+
+    text = re.sub(r"```(\w*)\n(.*?)```", _replace_code_block, text, flags=re.DOTALL)
+
+    # Inline code: `text` -> ##text##
+    text = re.sub(r"`([^`]+)`", r"##\1##", text)
+
+    # Bold: **text** -> **text**  (same in xwiki)
+    # Italic: *text* -> //text//  (but avoid ** matches)
+    text = re.sub(r"(?<!\*)\*(?!\*)([^*]+?)(?<!\*)\*(?!\*)", r"//\1//", text)
+
+    # Links: [text](url) -> [[text>>url]]
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"[[\1>>\2]]", text)
+
+    # Images: ![alt](url) -> [[image:url||alt="alt"]]
+    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'[[image:\2||alt="\1"]]', text)
+
+    # Horizontal rule
+    text = re.sub(r"^---+$", "----", text, flags=re.MULTILINE)
+
+    return text
+
+
 def _build_page_content(repo: dict, readme: str | None, languages: dict) -> str:
-    """Build Markdown page content from repo data."""
+    """Build XWiki 2.1 page content from repo data."""
     lines = [
-        f"# {repo['name']}",
+        f"= {repo['name']} =",
         "",
         f"**Description:** {repo.get('description') or 'No description'}",
-        f"**URL:** [{repo['html_url']}]({repo['html_url']})",
+        f"**URL:** [[{repo['html_url']}]]",
         f"**Stars:** {repo.get('stargazers_count', 0)} | "
         f"**Forks:** {repo.get('forks_count', 0)} | "
         f"**Language:** {repo.get('language') or 'N/A'}",
@@ -32,7 +73,7 @@ def _build_page_content(repo: dict, readme: str | None, languages: dict) -> str:
     ]
 
     if languages:
-        lines.append("## Languages")
+        lines.append("== Languages ==")
         lines.append("")
         total = sum(languages.values())
         for lang, bytes_count in sorted(languages.items(), key=lambda x: -x[1]):
@@ -41,11 +82,11 @@ def _build_page_content(repo: dict, readme: str | None, languages: dict) -> str:
         lines.append("")
 
     if readme:
-        lines.append("---")
+        lines.append("----")
         lines.append("")
-        lines.append("## README")
+        lines.append("== README ==")
         lines.append("")
-        lines.append(readme)
+        lines.append(_md_to_xwiki(readme))
 
     return "\n".join(lines)
 
@@ -74,7 +115,7 @@ async def sync_repos(request: GitHubSyncRequest | None = None):
             languages = await github_client.get_repo_languages(settings.github_user, name)
             content = _build_page_content(repo, readme, languages)
             page_name = _sanitize_page_name(name)
-            await xwiki_client.put_page("GitHub", page_name, name, content, syntax="markdown/1.2")
+            await xwiki_client.put_page("GitHub", page_name, name, content)
             synced.append(name)
             logger.info("Synced repo: %s", name)
         except Exception as e:
