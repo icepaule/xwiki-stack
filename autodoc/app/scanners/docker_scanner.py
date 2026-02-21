@@ -3,12 +3,14 @@ from datetime import datetime, timezone
 
 import docker
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 
-def scan() -> dict:
-    """Scan Docker environment via socket."""
-    client = docker.DockerClient(base_url="unix:///var/run/docker.sock")
+def _scan_host(base_url: str) -> dict:
+    """Scan a single Docker host and return structured results."""
+    client = docker.DockerClient(base_url=base_url, timeout=15)
 
     containers = []
     for c in client.containers.list(all=True):
@@ -46,7 +48,7 @@ def scan() -> dict:
     info = client.info()
 
     return {
-        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "base_url": base_url,
         "host": {
             "hostname": info.get("Name", ""),
             "os": info.get("OperatingSystem", ""),
@@ -57,4 +59,46 @@ def scan() -> dict:
         "containers": containers,
         "networks": networks,
         "volumes": volumes,
+    }
+
+
+def _get_docker_hosts() -> list[str]:
+    """Build list of Docker hosts to scan from config."""
+    hosts = ["unix:///var/run/docker.sock"]
+    if settings.docker_hosts:
+        for h in settings.docker_hosts.split(","):
+            h = h.strip()
+            if h:
+                hosts.append(h)
+    return hosts
+
+
+def scan() -> dict:
+    """Scan all configured Docker hosts."""
+    hosts = _get_docker_hosts()
+    all_results = []
+    total_containers = 0
+
+    for base_url in hosts:
+        try:
+            result = _scan_host(base_url)
+            total_containers += len(result["containers"])
+            all_results.append(result)
+            logger.info("Scanned %s: %d containers", base_url, len(result["containers"]))
+        except Exception as e:
+            logger.error("Failed to scan %s: %s", base_url, e)
+            all_results.append({
+                "base_url": base_url,
+                "error": str(e),
+                "host": {},
+                "containers": [],
+                "networks": [],
+                "volumes": [],
+            })
+
+    return {
+        "scan_time": datetime.now(timezone.utc).isoformat(),
+        "hosts_scanned": len(all_results),
+        "total_containers": total_containers,
+        "hosts": all_results,
     }

@@ -57,6 +57,7 @@ async def health():
 # ── Config API ───────────────────────────────────────
 
 class ConfigUpdate(BaseModel):
+    docker_hosts: str | None = None
     scan_subnets: str | None = None
     scan_interval_hours: int | None = None
     esxi_host: str | None = None
@@ -67,6 +68,7 @@ class ConfigUpdate(BaseModel):
 async def get_config():
     """Return current runtime configuration."""
     return {
+        "docker_hosts": settings.docker_hosts,
         "scan_subnets": settings.scan_subnets,
         "scan_interval_hours": settings.scan_interval_hours,
         "esxi_host": settings.esxi_host,
@@ -83,12 +85,14 @@ async def get_config():
 async def update_config(cfg: ConfigUpdate):
     """Update runtime configuration (non-persistent, resets on restart)."""
     changed = []
+    if cfg.docker_hosts is not None:
+        settings.docker_hosts = cfg.docker_hosts
+        changed.append("docker_hosts")
     if cfg.scan_subnets is not None:
         settings.scan_subnets = cfg.scan_subnets
         changed.append("scan_subnets")
     if cfg.scan_interval_hours is not None:
         settings.scan_interval_hours = cfg.scan_interval_hours
-        # Reschedule
         stop_scheduler()
         start_scheduler()
         changed.append("scan_interval_hours")
@@ -127,7 +131,11 @@ async def scan_docker():
     data = docker_scanner.scan()
     analysis = await ollama_analyzer.analyze("Docker", data)
     await xwiki_writer.write_docker_scan(data, analysis)
-    return {"status": "ok", "containers": len(data.get("containers", []))}
+    return {
+        "status": "ok",
+        "hosts_scanned": data.get("hosts_scanned", 0),
+        "total_containers": data.get("total_containers", 0),
+    }
 
 
 @app.post("/api/scan/network")

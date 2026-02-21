@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     xwiki_admin_password: str = ""
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:14b"
+    docker_hosts: str = ""
     scan_subnets: str = "192.168.1.0/24"
     scan_interval_hours: int = 24
     esxi_host: str = ""

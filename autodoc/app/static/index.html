@@ -101,7 +101,7 @@
             <div class="scan-card">
               <div class="scan-info">
                 <h3>Docker Scanner</h3>
-                <p>Discovers containers, networks, and volumes via Docker socket</p>
+                <p>Local socket + remote Docker hosts (Synology, etc.)</p>
               </div>
               <div class="btn-group" style="align-items:center; gap:12px">
                 <span class="badge badge-idle" id="status-docker">idle</span>
@@ -157,8 +157,12 @@
     <div id="tab-config" class="hidden">
       <div class="grid">
         <div class="card">
-          <div class="card-header"><h2>Network Scanning</h2></div>
+          <div class="card-header"><h2>Docker & Network</h2></div>
           <div class="card-body">
+            <div class="form-group">
+              <label>Remote Docker Hosts (comma-separated tcp://host:port)</label>
+              <input type="text" id="cfg-docker-hosts" placeholder="tcp://10.10.0.186:2375">
+            </div>
             <div class="form-group">
               <label>Subnets (comma-separated)</label>
               <input type="text" id="cfg-subnets" placeholder="192.168.1.0/24,10.10.0.0/24">
@@ -299,6 +303,7 @@ async function loadConfig() {
   try {
     const resp = await fetch(API + '/api/config');
     const cfg = await resp.json();
+    document.getElementById('cfg-docker-hosts').value = cfg.docker_hosts || '';
     document.getElementById('cfg-subnets').value = cfg.scan_subnets || '';
     document.getElementById('cfg-interval').value = cfg.scan_interval_hours || 24;
     document.getElementById('cfg-esxi-host').value = cfg.esxi_host || '';
@@ -310,6 +315,7 @@ async function loadConfig() {
 
 async function saveConfig() {
   const cfg = {
+    docker_hosts: document.getElementById('cfg-docker-hosts').value,
     scan_subnets: document.getElementById('cfg-subnets').value,
     scan_interval_hours: parseInt(document.getElementById('cfg-interval').value),
     esxi_host: document.getElementById('cfg-esxi-host').value,

@@ -75,34 +75,54 @@ async def write_scan_result(scan_type: str, page_name: str, title: str,
 
 
 async def write_docker_scan(data: dict, analysis: str | None = None):
-    """Write Docker scan results."""
-    title = f"Docker - {data.get('host', {}).get('hostname', 'unknown')}"
+    """Write Docker scan results (multi-host)."""
+    hosts = data.get("hosts", [])
+    title = f"Docker Overview ({data.get('total_containers', 0)} containers on {data.get('hosts_scanned', 0)} hosts)"
 
-    # Build structured content
     lines = [
         WARNING_HEADER,
         f"= {title} =",
         "",
-        f"**Host:** {data.get('host', {}).get('hostname', '')}",
-        f"**Docker Version:** {data.get('host', {}).get('docker_version', '')}",
-        f"**OS:** {data.get('host', {}).get('os', '')}",
-        f"**CPUs:** {data.get('host', {}).get('cpus', '')}",
-        f"**Memory:** {data.get('host', {}).get('memory_gb', '')} GB",
+        f"**Hosts scanned:** {data.get('hosts_scanned', 0)}",
+        f"**Total containers:** {data.get('total_containers', 0)}",
         f"**Scan time:** {data.get('scan_time', '')}",
         "",
-        "== Containers ==",
-        "",
-        "|=Name|=Image|=Status|=Ports",
     ]
 
-    for c in data.get("containers", []):
-        ports_str = ", ".join(
-            f"{k}->{','.join(v)}" for k, v in c.get("ports", {}).items() if v
-        ) or "-"
-        lines.append(f"|{c['name']}|{c['image']}|{c['status']}|{ports_str}")
+    for host_data in hosts:
+        host_info = host_data.get("host", {})
+        hostname = host_info.get("hostname", "unknown")
+        base_url = host_data.get("base_url", "")
+        error = host_data.get("error")
+
+        lines.append(f"== {hostname} ({base_url}) ==")
+        lines.append("")
+
+        if error:
+            lines.append(f"{{{{error}}}}{error}{{{{/error}}}}")
+            lines.append("")
+            continue
+
+        lines.extend([
+            f"**Docker Version:** {host_info.get('docker_version', '')}",
+            f"**OS:** {host_info.get('os', '')}",
+            f"**CPUs:** {host_info.get('cpus', '')} | **Memory:** {host_info.get('memory_gb', '')} GB",
+            "",
+            "=== Containers ===",
+            "",
+            "|=Name|=Image|=Status|=Ports",
+        ])
+
+        for c in host_data.get("containers", []):
+            ports_str = ", ".join(
+                f"{k}->{','.join(v)}" for k, v in c.get("ports", {}).items() if v
+            ) or "-"
+            lines.append(f"|{c['name']}|{c['image']}|{c['status']}|{ports_str}")
+
+        lines.append("")
 
     if analysis:
-        lines.extend(["", "== AI Analysis ==", "", analysis])
+        lines.extend(["== AI Analysis ==", "", analysis])
 
     content = "\n".join(lines)
     xml_body = _build_page_xml(title, content)
